@@ -85,7 +85,10 @@ def download_video_task(video_url):
                 elif "shorts/" in resolved_url: video_id = resolved_url.split("shorts/")[1].split("?")[0]
                 
                 if video_id:
-                    resp = requests.get(f"https://vid.puffyan.us/api/v1/videos/{video_id}", timeout=15).json()
+                    # ESTA É A LINHA QUE MUDAMOS! Trocamos de 'despachante'.
+                    invidious_api_url = f"https://invidious.protoklaus.com/api/v1/videos/{video_id}"
+                    resp = requests.get(invidious_api_url, timeout=15).json()
+                    
                     stream = next((s for s in resp.get('formatStreams', []) if s.get('itag') == '22'), None) or \
                              next((s for s in resp.get('formatStreams', []) if s.get('itag') == '18'), None)
                     if stream and stream.get('url'):
@@ -134,7 +137,6 @@ def download_video_task(video_url):
             base_filename, file_size = os.path.basename(downloaded_file), os.path.getsize(downloaded_file)
             download_info.update({'status': 'completed', 'message': 'Download concluído!', 'file_name': base_filename, 'download_link': f'/download_file/{base_filename}', 'title': info.get('title', title), 'thumbnail': info.get('thumbnail', thumbnail), 'file_size': file_size})
 
-    # ESTE BLOCO ESTAVA COM A INDENTAÇÃO ERRADA E FOI CORRIGIDO
     except Exception as e:
         error_message = f"Erro final ao baixar {original_url}: {str(e)}"
         print(error_message)
