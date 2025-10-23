@@ -1,11 +1,10 @@
-# O código completo e final do app.py
 from flask import Flask, render_template, request, jsonify, send_file
 import yt_dlp
 import os
 import uuid
 import threading
-import json
 import re
+import requests
 
 app = Flask(__name__)
 
@@ -15,9 +14,33 @@ if not os.path.exists(DOWNLOAD_FOLDER):
 
 download_status_map = {}
 
-# (O resto do código permanece o mesmo, a única mudança é no bloco ydl_opts)
-# ...
-# (Para evitar um bloco gigante, a mudança principal está aqui dentro)
+def clean_ansi_codes(text):
+    return re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])').sub('', text)
+
+@app.route('/')
+def index():
+    return render_template('index.html')
+
+@app.route('/api/download', methods=['POST'])
+def handle_download():
+    data = request.get_json()
+    video_url = data.get('url')
+    if not video_url: return jsonify({'error': 'URL obrigatória.'}), 400
+    if video_url in download_status_map: del download_status_map[video_url]
+    download_status_map[video_url] = {'status': 'processing', 'message': 'Iniciando...'}
+    thread = threading.Thread(target=download_video_task, args=(video_url,))
+    thread.start()
+    return jsonify({'status': 'processing', 'video_url': video_url})
+
+@app.route('/api/check_status', methods=['POST'])
+def check_download_status():
+    data = request.get_json()
+    video_url = data.get('url')
+    status_info = download_status_map.get(video_url)
+    if status_info:
+        status_info.setdefault('file_size', 0)
+        return jsonify(status_info)
+    return jsonify({'status': 'not_found'}), 404
 
 def download_video_task(video_url):
     original_url = video_url
@@ -25,43 +48,60 @@ def download_video_task(video_url):
     download_info.update({'status': 'processing', 'file_size': 0})
     
     try:
-        # Define o caminho para o arquivo de cookies
-        cookies_file_path = 'cookies.txt'
-        
-        # Verifica se o arquivo de cookies existe. Se não, avisa no log.
-        if not os.path.exists(cookies_file_path):
-            print("AVISO: Arquivo 'cookies.txt' não encontrado. Downloads podem falhar.")
-            cookies_file_path = None # Usa None se o arquivo não existir
+        cookies_file = 'cookies.txt'
+        if not os.path.exists(cookies_file):
+            print("AVISO: 'cookies.txt' não encontrado. Downloads do YouTube/TikTok podem falhar.")
+            cookies_file = None
 
-        # Opções do yt-dlp usando o arquivo de cookies
         ydl_opts = {
-            'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best[acodec!=none]',
-            'outtmpl': os.path.join(DOWNLOAD_FOLDER, f'{str(uuid.uuid4())}.%(ext)s'),
+            'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
+            'outtmpl': os.path.join(DOWNLOAD_FOLDER, f'{uuid.uuid4()}.%(ext)s'),
             'noplaylist': True,
             'progress_hooks': [lambda d: update_download_progress(d, original_url)],
-            'retries': 5, # Aumentar as tentativas
-            'fragment_retries': 5,
-            'no_check_certificate': True,
+            'cookiefile': cookies_file,
+            'retries': 3,
+            'fragment_retries': 3,
             'ignoreerrors': True,
-            # A MÁGICA ESTÁ AQUI:
-            'cookiefile': cookies_file_path,
         }
-        
+
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(video_url, download=True)
             if not info or not info.get('requested_downloads'):
-                raise yt_dlp.utils.DownloadError("Download via yt-dlp falhou.")
+                raise yt_dlp.utils.DownloadError("Falha no download. O vídeo pode ser privado ou bloqueado.")
             
             downloaded_file = info['requested_downloads'][0]['filepath']
             base_filename = os.path.basename(downloaded_file)
             file_size = os.path.getsize(downloaded_file)
             
             download_info.update({
-                'status': 'completed', 'message': 'Download concluído!',
-                'file_name': base_filename, 'download_link': f'/download_file/{base_filename}',
-                'title': info.get('title', 'Vídeo'), 'thumbnail': info.get('thumbnail', ''),
+                'status': 'completed',
+                'file_name': base_filename,
+                'download_link': f'/download_file/{base_filename}',
+                'title': info.get('title', 'Vídeo'),
+                'thumbnail': info.get('thumbnail', ''),
                 'file_size': file_size
             })
+            print(f"Download concluído: {base_filename}")
 
+    # ESTE É O BLOCO QUE ESTAVA COM ERRO DE INDENTAÇÃO. AGORA ESTÁ CORRIGIDO.
     except Exception as e:
-        # ... (bloco de erro continua o mesmo)
+        msg = clean_ansi_codes(str(e).split('\n')[0])
+        print(f"Erro final: {msg}")
+        download_info.update({'status': 'failed', 'message': msg})
+
+def update_download_progress(d, video_url):
+    info = download_status_map.setdefault(video_url, {})
+    if d['status'] == 'downloading':
+        percent = clean_ansi_codes(d.get('_percent_str',''))
+        eta = clean_ansi_codes(d.get('_eta_str',''))
+        info.update({'message': f"Baixando: {percent} ETA {eta}", 'file_size': d.get('total_bytes_estimate', 0)})
+    elif d['status'] == 'finished':
+        info.update({'message': 'Processando...'})
+
+@app.route('/download_file/<path:filename>')
+def serve_downloaded_file(filename):
+    return send_file(os.path.join(DOWNLOAD_FOLDER, filename), as_attachment=True)
+
+if __name__ == '__main__':
+    port = int(os.environ.get('PORT', 5000))
+    app.run(debug=True, host='0.0.0.0', port=port)
