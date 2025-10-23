@@ -1,295 +1,63 @@
-/* Importando uma fonte moderna do Google Fonts */
-@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap');
+/* --- ESTILOS DAS MELHORIAS --- */
 
-/* Variáveis de Cores */
-:root {
-    --primary-color: #5a67d8;
-    --background-color: #f7fafc;
-    --card-background: #ffffff;
-    --text-color: #2d3748;
-    --subtle-text: #718096;
-    --border-color: #e2e8f0;
-    --shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-}
-
-/* Reset Básico */
-* {
-    margin: 0;
-    padding: 0;
-    box-sizing: border-box;
-}
-
-body {
-    font-family: 'Poppins', sans-serif;
-    background-color: var(--background-color);
-    color: var(--text-color);
-    line-height: 1.6;
-}
-
-.container {
-    max-width: 1100px;
-    margin: 0 auto;
-    padding: 0 20px;
-}
-
-/* Header */
-header {
-    background-color: var(--card-background);
-    box-shadow: var(--shadow);
-    padding: 1rem 0;
-    position: sticky;
-    top: 0;
-    z-index: 10;
-}
-
-header .container {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-}
-
-header h1 {
-    color: var(--primary-color);
-    font-weight: 700;
-}
-
-header nav i {
-    font-size: 1.5rem;
-    cursor: pointer;
-}
-
-/* Seção Hero */
-.hero {
-    text-align: center;
-    padding: 4rem 0;
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-    color: white;
-}
-
-.hero h2 {
-    font-size: 2.5rem;
-    margin-bottom: 0.5rem;
-}
-
-/* Formulário de Download */
-.download-form {
-    padding: 2rem 0;
-    margin-top: -40px; /* Efeito de sobreposição */
-    position: relative;
-}
-
-.download-form form {
-    display: flex;
-    background: var(--card-background);
-    border-radius: 12px;
-    box-shadow: var(--shadow);
-    padding: 10px;
-    max-width: 700px;
-    margin: 0 auto;
-}
-
-.input-wrapper {
-    flex-grow: 1;
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    padding-left: 15px;
-}
-
-.input-wrapper i {
-    color: var(--subtle-text);
-}
-
-.download-form input {
-    width: 100%;
-    border: none;
-    outline: none;
-    font-size: 1rem;
-    padding: 10px 0;
-    background: transparent;
-}
-
+/* Botão de download com loader */
 .download-form button {
-    background-color: var(--primary-color);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.button-loader {
+    font-size: 1.2rem;
+}
+
+/* Card de status (processando) */
+.download-card.status-card {
+    background-color: #ebf8ff;
+    border-color: #90cdf4;
+}
+.status-icon {
+    font-size: 2.5rem;
+    color: var(--primary-color);
+    margin-bottom: 1rem;
+}
+
+/* Detalhes do arquivo no card de sucesso */
+.file-info {
+    font-size: 0.9rem;
+    color: var(--subtle-text);
+    margin-top: 0.5rem;
+    margin-bottom: 1rem;
+}
+
+/* Grupo de botões (Download e Copiar) */
+.button-group {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+    justify-content: center;
+}
+@media (min-width: 600px) {
+    .button-group {
+        justify-content: flex-start;
+    }
+}
+
+/* Botão de copiar link */
+.copy-button {
+    background-color: var(--subtle-text);
     color: white;
     border: none;
     border-radius: 8px;
-    padding: 0 25px;
-    font-size: 1rem;
-    font-weight: 600;
+    padding: 10px;
+    height: 44px; /* Mesma altura do botão de download */
+    width: 44px;
+    font-size: 1.1rem;
     cursor: pointer;
     transition: background-color 0.3s ease;
 }
-
-.download-form button:hover {
-    background-color: #434190;
+.copy-button:hover {
+    background-color: var(--text-color);
 }
-
-/* Seção de Ferramentas */
-.tools-section {
-    padding: 4rem 0;
-}
-
-.tools-section h3 {
-    text-align: center;
-    font-size: 1.8rem;
-    margin-bottom: 2rem;
-}
-
-.tools-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-    gap: 1.5rem;
-}
-
-.tool-card {
-    background: var(--card-background);
-    border-radius: 12px;
-    padding: 2rem;
-    text-align: center;
-    box-shadow: var(--shadow);
-    border: 1px solid var(--border-color);
-    transition: transform 0.3s ease, box-shadow 0.3s ease;
-}
-
-.tool-card:hover {
-    transform: translateY(-5px);
-    box-shadow: 0 8px 15px rgba(0, 0, 0, 0.1);
-}
-
-.tool-card i {
-    font-size: 3rem;
-    margin-bottom: 1rem;
-    color: var(--primary-color);
-}
-
-/* Footer */
-footer {
-    background-color: #e2e8f0;
-    padding: 2rem 0;
-    text-align: center;
-    color: var(--subtle-text);
-}
-
-footer .container {
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-}
-
-.footer-links a {
-    color: var(--subtle-text);
-    text-decoration: none;
-    margin: 0 10px;
-}
-
-.footer-links a:hover {
-    color: var(--primary-color);
-}
-
-/* Responsividade para celulares */
-@media (max-width: 768px) {
-    .hero h2 {
-        font-size: 2rem;
-    }
-
-    .download-form form {
-        flex-direction: column;
-        gap: 10px;
-        padding: 20px;
-    }
-
-    .download-form button {
-        padding: 15px;
-    }
-}
-/* Estilos para a seção de resultados de download */
-.download-results {
-    margin-top: 2rem;
-    padding: 1.5rem;
-    background-color: var(--card-background);
-    border-radius: 12px;
-    box-shadow: var(--shadow);
-    border: 1px solid var(--border-color);
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    text-align: center;
-}
-
-.download-results p.status-message {
-    font-size: 1.1rem;
-    color: var(--text-color);
-    margin-bottom: 1rem;
-}
-
-.download-results p.error-message {
-    color: #e53e3e; /* Cor vermelha para erros */
-    font-weight: 500;
-}
-
-.video-card-result {
-    display: flex;
-    flex-direction: column; /* Coluna em telas pequenas */
-    align-items: center;
-    gap: 1.5rem;
-    width: 100%;
-    max-width: 500px;
-}
-
-.video-thumbnail {
-    width: 100%;
-    max-width: 250px;
-    height: auto;
-    border-radius: 8px;
-    object-fit: cover;
-    box-shadow: var(--shadow);
-}
-
-.video-details {
-    flex-grow: 1;
-    text-align: center; /* Centraliza o texto */
-}
-
-.video-details h4 {
-    font-size: 1.4rem;
-    margin-bottom: 0.8rem;
-    color: var(--primary-color);
-}
-
-.download-button {
-    display: inline-flex;
-    align-items: center;
-    background-color: #38a169; /* Um verde bonito */
-    color: white;
-    padding: 10px 20px;
-    border-radius: 8px;
-    text-decoration: none;
-    font-weight: 600;
-    transition: background-color 0.3s ease;
-    margin-top: 1rem;
-}
-
-.download-button i {
-    margin-right: 8px;
-    font-size: 1.2rem;
+.copy-button i {
     color: white; /* Garante que o ícone seja branco */
-}
-
-.download-button:hover {
-    background-color: #2f855a;
-}
-
-/* Responsividade para telas maiores: muda para linha */
-@media (min-width: 600px) {
-    .video-card-result {
-        flex-direction: row; /* Volta para linha em telas maiores */
-        text-align: left; /* Alinha texto à esquerda */
-    }
-    .video-thumbnail {
-        max-width: 150px; /* Tamanho menor em linha */
-    }
-    .video-details {
-        text-align: left;
-    }
 }
