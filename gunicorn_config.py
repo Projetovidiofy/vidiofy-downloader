@@ -1,2 +1,2 @@
-bind = "0.0.0.0:10000"
-workers = 4
+import os
+bind = f"0.0.0.0:{os.environ.get('PORT', '5000')}"
