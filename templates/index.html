@@ -124,7 +124,7 @@
                                 <h4>${result.title}</h4>
                                 <p class="file-info">Tamanho: ${fileSizeMB} MB</p>
                                 <div class="button-group">
-                                    <a href="${result.download_link}" class="download-button" download="${result.file_name}">
+                                    <a href="${result.download_link}" class="download-button" download="${result.file_name}" onclick="scrollToTopAfterDownload()">
                                         <i class="fa-solid fa-download"></i> Baixar MP4
                                     </a>
                                     <button class="copy-button" onclick="copyToClipboard('${window.location.origin}${result.download_link}')">
@@ -159,6 +159,14 @@
             buttonText.style.display = 'inline';
             buttonLoader.style.display = 'none';
             submitButton.disabled = false;
+        }
+        
+        // NOVA FUNÇÃO
+        function scrollToTopAfterDownload() {
+            // Adiciona um pequeno atraso para garantir que o download iniciou
+            setTimeout(() => {
+                form.scrollIntoView({ behavior: 'smooth' });
+            }, 500);
         }
 
         function copyToClipboard(text) {
