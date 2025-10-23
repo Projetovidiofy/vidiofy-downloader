@@ -8,16 +8,12 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
 </head>
 <body>
-
     <header>
         <div class="container">
             <h1>Vidiofy</h1>
-            <nav>
-                <i class="fa-solid fa-circle-half-stroke"></i>
-            </nav>
+            <nav><i class="fa-solid fa-circle-half-stroke"></i></nav>
         </div>
     </header>
-
     <main>
         <section class="hero">
             <div class="container">
@@ -25,61 +21,39 @@
                 <p>O melhor baixador de vídeos online e gratuito</p>
             </div>
         </section>
-
-        <section class="download-form">
+        <section class="download-form-section">
             <div class="container">
                 <form id="url-form">
                     <div class="input-wrapper">
                         <i class="fa-solid fa-link"></i>
                         <input type="url" id="video-url" placeholder="Cole o link do vídeo aqui..." required>
                     </div>
-                    <button type="submit">Baixar</button>
+                    <button type="submit">
+                        <span class="button-text">Baixar</span>
+                        <span class="button-loader" style="display: none;"><i class="fa-solid fa-spinner fa-spin"></i></span>
+                    </button>
                 </form>
-                <div id="download-results" class="download-results"></div>
             </div>
         </section>
-
+        <section class="results-section">
+            <div class="container" id="download-results"></div>
+        </section>
         <section class="tools-section">
             <div class="container">
                 <h3>Ferramentas de Download</h3>
                 <div class="tools-grid">
-                    <div class="tool-card">
-                        <i class="fa-brands fa-tiktok"></i>
-                        <p>Baixador de TikTok sem marca d'água</p>
-                    </div>
-                    <div class="tool-card">
-                        <i class="fa-brands fa-instagram"></i>
-                        <p>Download de Reels, Stories e Vídeos</p>
-                    </div>
-                    <div class="tool-card">
-                        <i class="fa-brands fa-facebook"></i>
-                        <p>Salvar vídeos e stories do Facebook em HD</p>
-                    </div>
-                    <div class="tool-card">
-                        <i class="fa-solid fa-k"></i>
-                        <p>Baixar vídeos do Kwai sem logo</p>
-                    </div>
-                    <div class="tool-card">
-                        <i class="fa-brands fa-twitter"></i>
-                        <p>Conversor fácil de vídeos do Twitter para MP4</p>
-                    </div>
-                    <div class="tool-card">
-                        <i class="fa-brands fa-pinterest"></i>
-                        <p>Baixar vídeos e imagens do Pinterest</p>
-                    </div>
-                     <div class="tool-card">
-                        <i class="fa-brands fa-youtube"></i>
-                        <p>Baixar vídeos do YouTube em alta qualidade</p>
-                    </div>
-                     <div class="tool-card">
-                        <i class="fa-brands fa-soundcloud"></i>
-                        <p>SoundCloud Downloader para MP3</p>
-                    </div>
+                    <div class="tool-card"><i class="fa-brands fa-tiktok"></i><p>Baixador de TikTok</p></div>
+                    <div class="tool-card"><i class="fa-brands fa-instagram"></i><p>Download de Reels e Stories</p></div>
+                    <div class="tool-card"><i class="fa-brands fa-facebook"></i><p>Salvar vídeos do Facebook</p></div>
+                    <div class="tool-card"><i class="fa-solid fa-k"></i><p>Baixar vídeos do Kwai</p></div>
+                    <div class="tool-card"><i class="fa-brands fa-twitter"></i><p>Converter vídeos do Twitter</p></div>
+                    <div class="tool-card"><i class="fa-brands fa-pinterest"></i><p>Baixar do Pinterest</p></div>
+                    <div class="tool-card"><i class="fa-brands fa-youtube"></i><p>Baixar do YouTube</p></div>
+                    <div class="tool-card"><i class="fa-brands fa-soundcloud"></i><p>SoundCloud para MP3</p></div>
                 </div>
             </div>
         </section>
     </main>
-
     <footer>
         <div class="container">
             <p>&copy; 2025 Vidiofy. Todos os direitos reservados.</p>
@@ -91,22 +65,28 @@
     </footer>
 
     <script>
-        const downloadResultsDiv = document.getElementById('download-results');
-        let currentPollingInterval = null;
+        const form = document.getElementById('url-form');
+        const urlInput = document.getElementById('video-url');
+        const submitButton = form.querySelector('button');
+        const buttonText = submitButton.querySelector('.button-text');
+        const buttonLoader = submitButton.querySelector('.button-loader');
+        const resultsDiv = document.getElementById('download-results');
+        let pollingInterval = null;
 
-        document.getElementById('url-form').addEventListener('submit', async function(event) {
-            event.preventDefault();
-            const videoUrl = document.getElementById('video-url').value;
-            const submitButton = this.querySelector('button');
+        form.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const videoUrl = urlInput.value;
             
+            buttonText.style.display = 'none';
+            buttonLoader.style.display = 'inline';
             submitButton.disabled = true;
-            submitButton.textContent = 'Iniciando...';
-            downloadResultsDiv.innerHTML = '<p class="status-message">Iniciando download...</p>';
+            resultsDiv.innerHTML = `
+                <div class="download-card status-card">
+                    <i class="fa-solid fa-spinner fa-spin status-icon"></i>
+                    <p class="status-message">Analisando o link...</p>
+                </div>`;
 
-            // Limpa qualquer polling anterior
-            if (currentPollingInterval) {
-                clearInterval(currentPollingInterval);
-            }
+            if (pollingInterval) clearInterval(pollingInterval);
 
             try {
                 const response = await fetch('/api/download', {
@@ -114,73 +94,80 @@
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ url: videoUrl }),
                 });
-
                 const result = await response.json();
-
                 if (response.ok) {
-                    console.log('Download iniciado:', result);
-                    // Começa a verificar o status a cada X segundos
-                    currentPollingInterval = setInterval(() => checkDownloadStatus(videoUrl), 3000); // Verifica a cada 3 segundos
+                    pollingInterval = setInterval(() => checkStatus(videoUrl), 2000);
                 } else {
-                    console.error('Erro ao iniciar download:', result);
-                    downloadResultsDiv.innerHTML = `<p class="error-message">Erro: ${result.error || 'Ocorreu um problema ao iniciar o download.'}</p>`;
-                    submitButton.disabled = false;
-                    submitButton.textContent = 'Baixar';
+                    handleFailure(result.message || 'Erro ao iniciar o processo.');
                 }
             } catch (error) {
-                console.error('Erro de rede:', error);
-                downloadResultsDiv.innerHTML = '<p class="error-message">Erro de rede. Verifique se o servidor Python está rodando.</p>';
-                submitButton.disabled = false;
-                submitButton.textContent = 'Baixar';
+                handleFailure('Erro de rede. O servidor está offline?');
             }
         });
 
-        async function checkDownloadStatus(videoUrl) {
-            const submitButton = document.querySelector('#url-form button');
+        async function checkStatus(videoUrl) {
             try {
                 const response = await fetch('/api/check_status', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ url: videoUrl }),
                 });
-                const statusResult = await response.json();
+                const result = await response.json();
 
-                if (statusResult.status === 'completed') {
-                    clearInterval(currentPollingInterval); // Para de verificar
-                    downloadResultsDiv.innerHTML = `
-                        <div class="video-card-result">
-                            <img src="${statusResult.thumbnail}" alt="Thumbnail do vídeo" class="video-thumbnail">
+                if (result.status === 'completed') {
+                    clearInterval(pollingInterval);
+                    const fileSizeMB = (result.file_size / (1024 * 1024)).toFixed(2);
+                    resultsDiv.innerHTML = `
+                        <div class="download-card completed-card">
+                            <img src="${result.thumbnail}" alt="Thumbnail" class="video-thumbnail">
                             <div class="video-details">
-                                <h4>${statusResult.title}</h4>
-                                <a href="${statusResult.download_link}" class="download-button" download="${statusResult.file_name}">
-                                    <i class="fa-solid fa-download"></i> Baixar ${statusResult.file_name.split('.').pop().toUpperCase()}
-                                </a>
-                                <p class="status-message">Tamanho: ${(statusResult.file_size / (1024 * 1024)).toFixed(2)} MB</p>
+                                <h4>${result.title}</h4>
+                                <p class="file-info">Tamanho: ${fileSizeMB} MB</p>
+                                <div class="button-group">
+                                    <a href="${result.download_link}" class="download-button" download="${result.file_name}">
+                                        <i class="fa-solid fa-download"></i> Baixar MP4
+                                    </a>
+                                    <button class="copy-button" onclick="copyToClipboard('${window.location.origin}${result.download_link}')">
+                                        <i class="fa-solid fa-copy"></i>
+                                    </button>
+                                </div>
                             </div>
-                        </div>
-                    `;
-                    submitButton.disabled = false;
-                    submitButton.textContent = 'Baixar';
-                } else if (statusResult.status === 'failed') {
-                    clearInterval(currentPollingInterval);
-                    downloadResultsDiv.innerHTML = `<p class="error-message">Falha no download: ${statusResult.message}</p>`;
-                    submitButton.disabled = false;
-                    submitButton.textContent = 'Baixar';
+                        </div>`;
+                    resetForm();
+                } else if (result.status === 'failed') {
+                    handleFailure(result.message);
                 } else {
-                    // Atualiza a mensagem de progresso (ex: "Baixando: 25% - 00:30 ETA")
-                    downloadResultsDiv.innerHTML = `<p class="status-message">${statusResult.message}</p>`;
+                    resultsDiv.innerHTML = `
+                        <div class="download-card status-card">
+                            <i class="fa-solid fa-spinner fa-spin status-icon"></i>
+                            <p class="status-message">${result.message}</p>
+                        </div>`;
                 }
-
             } catch (error) {
-                console.error('Erro ao verificar status:', error);
-                clearInterval(currentPollingInterval);
-                downloadResultsDiv.innerHTML = '<p class="error-message">Erro ao verificar o status do download.</p>';
-                submitButton.disabled = false;
-                submitButton.textContent = 'Baixar';
+                handleFailure('Erro ao verificar o status.');
             }
         }
-    </script>
 
+        function handleFailure(message) {
+            clearInterval(pollingInterval);
+            resultsDiv.innerHTML = `<div class="download-card error-card"><p class="error-message">Falha: ${message}</p></div>`;
+            resetForm(false);
+        }
+
+        function resetForm(clearInput = true) {
+            if (clearInput) urlInput.value = '';
+            buttonText.style.display = 'inline';
+            buttonLoader.style.display = 'none';
+            submitButton.disabled = false;
+        }
+
+        function copyToClipboard(text) {
+            navigator.clipboard.writeText(text).then(() => {
+                alert('Link de download copiado para a área de transferência!');
+            }).catch(err => {
+                alert('Não foi possível copiar o link.');
+            });
+        }
+    </script>
 </body>
 </html>
-
