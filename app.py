@@ -1,190 +1,110 @@
+from flask import Flask, render_template, request, jsonify, send_file
+import yt_dlp
 import os
 import uuid
-import json
 import threading
-from urllib.parse import urlparse
-from flask import Flask, request, jsonify, send_from_directory
-import yt_dlp
-
-# Configurações
-PORT = int(os.environ.get("PORT", 5000))
-BASE_DIR = os.path.abspath(os.path.dirname(__file__))
-DOWNLOAD_ROOT = os.environ.get("DOWNLOAD_ROOT", os.path.join(BASE_DIR, "downloads"))
-os.makedirs(DOWNLOAD_ROOT, exist_ok=True)
-
-# Tenta conectar a Redis, fallback para memória se não houver Redis
-try:
-    import redis
-    REDIS_URL = os.environ.get("REDIS_URL")
-    if REDIS_URL:
-        redis_client = redis.Redis.from_url(REDIS_URL, decode_responses=True)
-        REDIS_AVAILABLE = True
-    else:
-        REDIS_AVAILABLE = False
-        redis_client = None
-except Exception:
-    REDIS_AVAILABLE = False
-    redis_client = None
-
-# Token de autenticação opcional
-AUTH_TOKEN = os.environ.get("API_AUTH_TOKEN", "").strip()
-def require_auth(req):
-    if not AUTH_TOKEN:
-        return True
-    return req.headers.get("X-ACCESS-TOKEN", "") == AUTH_TOKEN
-
-def job_path(job_id):
-    path = os.path.join(DOWNLOAD_ROOT, job_id)
-    os.makedirs(path, exist_ok=True)
-    return path
-
-def set_status(job_id, payload):
-    if REDIS_AVAILABLE and redis_client:
-        try:
-            redis_client.set(f"job:{job_id}", json.dumps(payload))
-        except Exception as e:
-            print(f"Redis write error: {e}")
-            _store_in_memory(job_id, payload)
-    else:
-        _store_in_memory(job_id, payload)
-
-def _store_in_memory(job_id, payload):
-    global _fallback_store
-    try:
-        _fallback_store
-    except NameError:
-        _fallback_store = {}
-    _fallback_store[job_id] = payload
-
-def get_status(job_id):
-    if REDIS_AVAILABLE and redis_client:
-        try:
-            raw = redis_client.get(f"job:{job_id}")
-            if not raw:
-                return None
-            return json.loads(raw)
-        except Exception as e:
-            print(f"Redis read error: {e}")
-    global _fallback_store
-    if '_fallback_store' in globals():
-        return globals()['_fallback_store'].get(job_id)
-    return None
-
-def is_valid_video_file_like(path):
-    try:
-        if not os.path.isfile(path):
-            return False
-        ext = os.path.splitext(path)[1].lower()
-        valid_exts = ['.mp4', '.webm', '.mkv', '.mov', '.avi', '.flv', '.m4v']
-        if ext not in valid_exts:
-            return False
-        if os.path.getsize(path) < 100000:
-            return False
-        with open(path, 'rb') as f:
-            first = f.read(1024)
-        if b'<!DOCTYPE html' in first or b'<html' in first:
-            return False
-        return True
-    except Exception:
-        return False
-
-def download_task(original_url, job_id):
-    set_status(job_id, {'status': 'processing', 'url': original_url, 'message': 'Iniciando download', 'file_size': 0})
-    try:
-        out_dir = job_path(job_id)
-        ydl_opts = {
-            'format': 'best[ext=mp4]/best',
-            'outtmpl': os.path.join(out_dir, '%(title)s.%(ext)s'),
-            'noplaylist': True,
-            'retries': 3,
-            'ignoreerrors': True,
-            'progress_hooks': [lambda d: None],
-        }
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(original_url, download=True)
-            if not info:
-                raise Exception("Não foi possível extrair informações do vídeo")
-            downloaded_file = ydl.prepare_filename(info)
-            if not downloaded_file or not os.path.exists(downloaded_file):
-                raise Exception("Arquivo não encontrado após download")
-            if not is_valid_video_file_like(downloaded_file):
-                os.remove(downloaded_file)
-                raise Exception("Arquivo baixado não é um vídeo válido")
-            file_size = os.path.getsize(downloaded_file)
-            set_status(job_id, {
-                'status': 'completed',
-                'url': original_url,
-                'file_name': os.path.basename(downloaded_file),
-                'download_path': f'/download_file/{job_id}/{os.path.basename(downloaded_file)}',
-                'title': info.get('title', 'Vídeo'),
-                'thumbnail': info.get('thumbnail', ''),
-                'file_size': file_size,
-                'message': 'Download concluído com sucesso!'
-            })
-    except Exception as e:
-        msg = str(e)
-        set_status(job_id, {'status': 'failed', 'url': original_url, 'message': msg})
-
-def validate_youtube_url(url):
-    try:
-        from urllib.parse import urlparse
-        p = urlparse(url)
-        if p.scheme not in ('http', 'https'):
-            return False
-        if not p.netloc:
-            return False
-        import re
-        if not re.search(r'(youtube.com|youtu.be|youtube-nocookie.com)', p.netloc, re.IGNORECASE):
-            return False
-        return True
-    except Exception:
-        return False
+import re
 
 app = Flask(__name__)
 
+DOWNLOAD_FOLDER = 'downloads'
+if not os.path.exists(DOWNLOAD_FOLDER):
+    os.makedirs(DOWNLOAD_FOLDER)
+
+download_status_map = {}
+
+def clean_ansi_codes(text):
+    return re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])').sub('', text)
+
 @app.route('/')
 def index():
-    return jsonify({'status': 'ok', 'message': 'API rodando'}), 200
+    return render_template('index.html')
 
 @app.route('/api/download', methods=['POST'])
-def api_download():
-    if not require_auth(request):
-        return jsonify({'error': 'Unauthorized'}), 401
-    data = request.get_json(force=True) or {}
+def handle_download():
+    data = request.get_json()
     video_url = data.get('url')
-    if not video_url:
-        return jsonify({'error': "URL 'url' obrigatório"}), 400
-    if not validate_youtube_url(video_url):
-        return jsonify({'error': 'URL inválida ou não suportada'}), 400
-    job_id = str(uuid.uuid4())
-    thread = threading.Thread(target=download_task, args=(video_url, job_id), daemon=True)
+    if not video_url: return jsonify({'error': 'URL obrigatória.'}), 400
+    if video_url in download_status_map: del download_status_map[video_url]
+    download_status_map[video_url] = {'status': 'processing', 'message': 'Iniciando...'}
+    thread = threading.Thread(target=download_video_task, args=(video_url,))
     thread.start()
-    set_status(job_id, {'status': 'queued', 'url': video_url, 'message': 'Job enfileirado'})
-    return jsonify({'job_id': job_id, 'status': 'queued'}), 202
+    return jsonify({'status': 'processing', 'video_url': video_url})
 
-@app.route('/api/status', methods=['POST'])
-def api_status():
-    if not require_auth(request):
-        return jsonify({'error': 'Unauthorized'}), 401
-    data = request.get_json(force=True) or {}
-    job_id = data.get('job_id')
-    if not job_id:
-        return jsonify({'error': 'job_id obrigatório'}), 400
-    status = get_status(job_id)
-    if not status:
-        return jsonify({'status': 'not_found'}), 404
-    return jsonify(status), 200
+@app.route('/api/check_status', methods=['POST'])
+def check_download_status():
+    data = request.get_json()
+    video_url = data.get('url')
+    status_info = download_status_map.get(video_url)
+    if status_info:
+        status_info.setdefault('file_size', 0)
+        return jsonify(status_info)
+    return jsonify({'status': 'not_found'}), 404
 
-@app.route('/download_file/<job_id>/<path:filename>')
-def download_file(job_id, filename):
-    dir_path = job_path(job_id)
-    file_path = os.path.join(dir_path, filename)
-    if not os.path.exists(file_path) or not is_valid_video_file_like(file_path):
-        return jsonify({'error': 'Arquivo não encontrado ou inválido'}), 404
-    base_dir = os.path.abspath(dir_path)
-    if not file_path.startswith(base_dir):
-        return jsonify({'error': 'Acesso negado'}), 403
-    return send_from_directory(base_dir, filename, as_attachment=True)
+def download_video_task(video_url):
+    original_url = video_url
+    download_info = download_status_map.setdefault(original_url, {})
+    download_info.update({'status': 'processing', 'file_size': 0})
+    
+    try:
+        cookies_file = 'cookies.txt'
+        if not os.path.exists(cookies_file):
+            print("AVISO: 'cookies.txt' não encontrado. Downloads do YouTube/TikTok podem falhar.")
+            cookies_file = None
+
+        ydl_opts = {
+            'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
+            'outtmpl': os.path.join(DOWNLOAD_FOLDER, f'{uuid.uuid4()}.%(ext)s'),
+            'noplaylist': True,
+            'progress_hooks': [lambda d: update_download_progress(d, original_url)],
+            'cookiefile': cookies_file, # A solução principal
+            'retries': 3,
+            'fragment_retries': 3,
+            'ignoreerrors': True,
+        }
+
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(video_url, download=True)
+            if not info or not info.get('requested_downloads'):
+                raise yt_dlp.utils.DownloadError("Falha no download. O vídeo pode ser privado ou bloqueado.")
+            
+            downloaded_file = info['requested_downloads'][0]['filepath']
+            base_filename = os.path.basename(downloaded_file)
+
+            if not base_filename.lower().endswith(('.mp4', '.webm', '.mkv', '.mov')):
+                os.remove(downloaded_file)
+                raise yt_dlp.utils.DownloadError("Arquivo baixado não é um vídeo válido (provavelmente HTML).")
+            
+            file_size = os.path.getsize(downloaded_file)
+            
+            download_info.update({
+                'status': 'completed',
+                'file_name': base_filename,
+                'download_link': f'/download_file/{base_filename}',
+                'title': info.get('title', 'Vídeo'),
+                'thumbnail': info.get('thumbnail', ''),
+                'file_size': file_size
+            })
+            print(f"Download concluído: {base_filename}")
+
+    except Exception as e:
+        msg = clean_ansi_codes(str(e).split('\n')[0])
+        print(f"Erro final: {msg}")
+        download_info.update({'status': 'failed', 'message': msg})
+
+def update_download_progress(d, video_url):
+    info = download_status_map.setdefault(video_url, {})
+    if d['status'] == 'downloading':
+        percent = clean_ansi_codes(d.get('_percent_str',''))
+        eta = clean_ansi_codes(d.get('_eta_str',''))
+        info.update({'message': f"Baixando: {percent} ETA {eta}", 'file_size': d.get('total_bytes_estimate', 0)})
+    elif d['status'] == 'finished':
+        info.update({'message': 'Processando...'})
+
+@app.route('/download_file/<path:filename>')
+def serve_downloaded_file(filename):
+    return send_file(os.path.join(DOWNLOAD_FOLDER, filename), as_attachment=True)
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=PORT)
+    port = int(os.environ.get('PORT', 5000))
+    app.run(debug=True, host='0.0.0.0', port=port)
