@@ -6,11 +6,9 @@ import threading
 import re
 
 app = Flask(__name__)
-
 DOWNLOAD_FOLDER = 'downloads'
 if not os.path.exists(DOWNLOAD_FOLDER):
     os.makedirs(DOWNLOAD_FOLDER)
-
 download_status_map = {}
 
 def clean_ansi_codes(text):
@@ -49,18 +47,21 @@ def download_video_task(video_url):
     try:
         cookies_file = 'cookies.txt'
         if not os.path.exists(cookies_file):
-            print("AVISO: 'cookies.txt' não encontrado. Downloads do YouTube/TikTok podem falhar.")
+            print("AVISO: 'cookies.txt' não encontrado. Downloads podem falhar.")
             cookies_file = None
 
         ydl_opts = {
             'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
-            'outtmpl': os.path.join(DOWNLOAD_FOLDER, f'{uuid.uuid4()}.%(ext)s'),
+            # MUDANÇA PRINCIPAL: Salva o arquivo com o título do vídeo
+            'outtmpl': os.path.join(DOWNLOAD_FOLDER, '%(title)s.%(ext)s'),
             'noplaylist': True,
             'progress_hooks': [lambda d: update_download_progress(d, original_url)],
-            'cookiefile': cookies_file, # A solução principal
+            'cookiefile': cookies_file,
             'retries': 3,
             'fragment_retries': 3,
             'ignoreerrors': True,
+            # Adiciona opção para restringir o tamanho do nome do arquivo (útil em alguns sistemas)
+            'restrictfilenames': True, 
         }
 
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -68,7 +69,7 @@ def download_video_task(video_url):
             if not info or not info.get('requested_downloads'):
                 raise yt_dlp.utils.DownloadError("Falha no download. O vídeo pode ser privado ou bloqueado.")
             
-            downloaded_file = info['requested_downloads'][0]['filepath']
+            downloaded_file = ydl.prepare_filename(info) # Pega o nome final do arquivo
             base_filename = os.path.basename(downloaded_file)
 
             if not base_filename.lower().endswith(('.mp4', '.webm', '.mkv', '.mov')):
@@ -97,14 +98,19 @@ def update_download_progress(d, video_url):
     if d['status'] == 'downloading':
         percent = clean_ansi_codes(d.get('_percent_str',''))
         eta = clean_ansi_codes(d.get('_eta_str',''))
-        info.update({'message': f"Baixando: {percent} ETA {eta}", 'file_size': d.get('total_bytes_estimate', 0)})
+        info.update({'message': f"Baixando: {percent} (ETA: {eta})", 'file_size': d.get('total_bytes_estimate', 0)})
     elif d['status'] == 'finished':
-        info.update({'message': 'Processando...'})
+        info.update({'message': 'Finalizando...'})
 
 @app.route('/download_file/<path:filename>')
 def serve_downloaded_file(filename):
-    return send_file(os.path.join(DOWNLOAD_FOLDER, filename), as_attachment=True)
+    # Por segurança, garante que o caminho não saia do diretório de downloads
+    safe_path = os.path.abspath(os.path.join(DOWNLOAD_FOLDER, filename))
+    if not safe_path.startswith(os.path.abspath(DOWNLOAD_FOLDER)):
+        return jsonify({'error': 'Acesso negado'}), 403
+    return send_file(safe_path, as_attachment=True)
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
     app.run(debug=True, host='0.0.0.0', port=port)
+
