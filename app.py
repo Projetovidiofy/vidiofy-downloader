@@ -163,6 +163,13 @@ def download_video_task(video_url):
              ydl_opts_info = {
                  'noplaylist': True, 'quiet': True, 'extract_flat': True, 'skip_download': True,
                  'no_check_certificate': True, 'ignoreerrors': True, # Tenta ser mais robusto
+                 # NOVO: Adiciona headers para a fase de extração de info também
+                 'http_headers': {
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+                    'Referer': 'https://www.youtube.com/' # Ou outra plataforma específica se for o caso
+                 },
+                 'sleep_interval': 1, # Pequeno atraso entre requisições
+                 'max_sleep_interval': 5, # Máximo atraso
              }
              with yt_dlp.YoutubeDL(ydl_opts_info) as ydl:
                  info_dict = ydl.extract_info(resolved_url, download=False)
@@ -196,6 +203,20 @@ def download_video_task(video_url):
             'fragment_retries': 3,
             'no_check_certificate': True,
             'ignoreerrors': True,
+            # NOVAS OPÇÕES PARA PARECER MAIS UM NAVEGADOR
+            'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+            'referer': 'https://www.youtube.com/', # Referer padrão (pode ser ajustado para outras plataformas)
+            'add_header': [
+                'Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+                'Accept-Language: en-US,en;q=0.5',
+                'Connection: keep-alive',
+                'Upgrade-Insecure-Requests: 1',
+            ],
+            'sleep_interval': 1, # Espera 1 segundo entre requisições (mais humano)
+            'max_sleep_interval': 5, # Máximo de 5 segundos
+            'buffer_size': 1048576, # Aumenta o buffer para downloads grandes
+            'http_chunk_size': 1048576, # Tamanho do chunk HTTP
+            # Fim das novas opções
         }
 
         print(f"Iniciando download padrão com yt-dlp para {resolved_url}...")
@@ -206,7 +227,16 @@ def download_video_task(video_url):
                  # Tenta pegar um erro mais específico, se disponível
                  raise yt_dlp.utils.DownloadError(f"Download via yt-dlp falhou. Verifique os logs do yt-dlp.")
 
-            downloaded_file = final_info_dict['requested_downloads'][0]['filepath']
+            # Certifica-se de que requested_downloads é uma lista e pega o primeiro item
+            downloaded_file = final_info_dict.get('requested_downloads')
+            if downloaded_file and isinstance(downloaded_file, list) and downloaded_file[0].get('filepath'):
+                downloaded_file = downloaded_file[0]['filepath']
+            else:
+                # Fallback caso a estrutura mude, tenta o url direto ou o outtmpl
+                downloaded_file = ydl_opts_download['outtmpl'].replace('.%(ext)s', '.' + final_info_dict.get('ext', 'mp4'))
+                if not os.path.exists(downloaded_file):
+                    raise yt_dlp.utils.DownloadError("Não foi possível determinar o arquivo baixado.")
+
             base_filename = os.path.basename(downloaded_file) 
             file_size = os.path.getsize(downloaded_file) if os.path.exists(downloaded_file) else 0
 
@@ -232,6 +262,8 @@ def download_video_task(video_url):
             # Verifica se é o erro de login do TikTok
             if "TikTok is requiring login" in msg:
                  final_error_msg = "Este vídeo do TikTok exige login. Tente outro vídeo ou use um método com cookies."
+            elif "confirm you’re not a bot" in msg: # Erro específico do YouTube
+                 final_error_msg = "O YouTube detectou atividade de bot. Tente novamente mais tarde ou com outro vídeo. Pode ser um bloqueio temporário do servidor."
             else:
                  final_error_msg = clean_ansi_codes(msg)
         else:
@@ -266,7 +298,7 @@ def serve_downloaded_file(filename):
     file_path = os.path.join(DOWNLOAD_FOLDER, filename)
     if os.path.exists(file_path):
         # Adiciona header para tentar forçar o download em vez de abrir no navegador
-        return send_file(file_path, as_attachment=True) 
+        return send_file(file_path, as_attachment=True, download_name=filename) 
     return jsonify({'error': 'Arquivo não encontrado.'}), 404
 
 
@@ -274,5 +306,4 @@ if __name__ == '__main__':
     # Usa a porta 5000 como padrão no Pydroid, mas mantém a variável de ambiente se definida
     port = int(os.environ.get('PORT', 5000)) 
     app.run(debug=True, host='0.0.0.0', port=port)
-
 
