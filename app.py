@@ -6,9 +6,11 @@ import threading
 import re
 
 app = Flask(__name__)
+
 DOWNLOAD_FOLDER = 'downloads'
 if not os.path.exists(DOWNLOAD_FOLDER):
     os.makedirs(DOWNLOAD_FOLDER)
+
 download_status_map = {}
 
 def clean_ansi_codes(text):
@@ -50,29 +52,43 @@ def download_video_task(video_url):
             print("AVISO: 'cookies.txt' não encontrado. Downloads podem falhar.")
             cookies_file = None
 
-        ydl_opts = {
+        # OTIMIZAÇÃO: Opções para uma extração de informação mais rápida
+        ydl_opts_info = {
+            'noplaylist': True,
+            'skip_download': True,
+            'extract_flat': True, # Pega a informação de forma "plana", sem processar cada formato
+            'quiet': True,
+            'cookiefile': cookies_file,
+        }
+        
+        print("Extraindo informações do vídeo (modo rápido)...")
+        download_info['message'] = 'Analisando o link...'
+        with yt_dlp.YoutubeDL(ydl_opts_info) as ydl:
+            info_dict_pre = ydl.extract_info(video_url, download=False)
+
+        # Agora, opções para o download completo
+        ydl_opts_download = {
             'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
-            # MUDANÇA PRINCIPAL: Salva o arquivo com o título do vídeo
-            'outtmpl': os.path.join(DOWNLOAD_FOLDER, '%(title)s.%(ext)s'),
+            'outtmpl': os.path.join(DOWNLOAD_FOLDER, '%(title)s - [%(id)s].%(ext)s'), # Adiciona ID para evitar nomes duplicados
             'noplaylist': True,
             'progress_hooks': [lambda d: update_download_progress(d, original_url)],
             'cookiefile': cookies_file,
             'retries': 3,
             'fragment_retries': 3,
             'ignoreerrors': True,
-            # Adiciona opção para restringir o tamanho do nome do arquivo (útil em alguns sistemas)
-            'restrictfilenames': True, 
+            'restrictfilenames': True,
         }
-
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        
+        print("Iniciando download completo...")
+        with yt_dlp.YoutubeDL(ydl_opts_download) as ydl:
             info = ydl.extract_info(video_url, download=True)
             if not info or not info.get('requested_downloads'):
                 raise yt_dlp.utils.DownloadError("Falha no download. O vídeo pode ser privado ou bloqueado.")
             
-            downloaded_file = ydl.prepare_filename(info) # Pega o nome final do arquivo
+            downloaded_file = ydl.prepare_filename(info)
             base_filename = os.path.basename(downloaded_file)
 
-            if not base_filename.lower().endswith(('.mp4', '.webm', '.mkv', '.mov')):
+            if not any(base_filename.lower().endswith(ext) for ext in ['.mp4', '.webm', '.mkv', '.mov']):
                 os.remove(downloaded_file)
                 raise yt_dlp.utils.DownloadError("Arquivo baixado não é um vídeo válido (provavelmente HTML).")
             
@@ -104,7 +120,6 @@ def update_download_progress(d, video_url):
 
 @app.route('/download_file/<path:filename>')
 def serve_downloaded_file(filename):
-    # Por segurança, garante que o caminho não saia do diretório de downloads
     safe_path = os.path.abspath(os.path.join(DOWNLOAD_FOLDER, filename))
     if not safe_path.startswith(os.path.abspath(DOWNLOAD_FOLDER)):
         return jsonify({'error': 'Acesso negado'}), 403
@@ -113,4 +128,3 @@ def serve_downloaded_file(filename):
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
     app.run(debug=True, host='0.0.0.0', port=port)
-
