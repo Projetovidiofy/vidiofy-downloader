@@ -1,246 +1,198 @@
-from flask import Flask, render_template, request, jsonify, send_file
-import yt_dlp
 import os
 import uuid
-import threading
+import json
 import re
-import requests
-import random
+import threading
+from urllib.parse import urlparse
+
+from flask import Flask, request, jsonify, send_from_directory
+import yt_dlp
+import redis
+
+# Configurações
+APP_HOST = "0.0.0.0"
+APP_PORT = int(os.environ.get("PORT", 5000))
+DOWNLOAD_ROOT = os.environ.get("DOWNLOAD_ROOT", os.path.join(os.getcwd(), "downloads"))
+os.makedirs(DOWNLOAD_ROOT, exist_ok=True)
+
+# Redis para estado compartilhado entre instâncias
+REDIS_URL = os.environ.get("REDIS_URL", "redis://localhost:6379/0")
+redis_client = redis.Redis.from_url(REDIS_URL, decode_responses=True)
+
+# Token de autenticação simples (opcional)
+AUTH_TOKEN = os.environ.get("API_AUTH_TOKEN", "").strip()
+def require_auth(req):
+    if not AUTH_TOKEN:
+        return True
+    token = req.headers.get("X-ACCESS-TOKEN", "")
+    return token == AUTH_TOKEN
 
 app = Flask(__name__)
 
-DOWNLOAD_FOLDER = 'downloads'
-if not os.path.exists(DOWNLOAD_FOLDER):
-    os.makedirs(DOWNLOAD_FOLDER)
-
-download_status_map = {}
-
-def clean_ansi_codes(text):
-    return re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])').sub('', text)
-
-def is_valid_video_file(file_path):
-    """Verifica se o arquivo é realmente um vídeo SEM usar magic"""
+def is_valid_video_file_like(path):
     try:
-        # Verificação 1: pela extensão
-        ext = os.path.splitext(file_path)[1].lower()
-        valid_extensions = ['.mp4', '.webm', '.mkv', '.mov', '.avi', '.flv', '.m4v']
-        
-        if ext not in valid_extensions:
+        if not os.path.isfile(path):
             return False
-        
-        # Verificação 2: pelo tamanho do arquivo (MHTML geralmente é pequeno)
-        file_size = os.path.getsize(file_path)
-        if file_size < 100000:  # Menos de 100KB provavelmente não é vídeo
+        ext = os.path.splitext(path)[1].lower()
+        valid_exts = ['.mp4', '.webm', '.mkv', '.mov', '.avi', '.flv', '.m4v']
+        if ext not in valid_exts:
             return False
-        
-        # Verificação 3: pelo conteúdo (lê os primeiros bytes)
-        with open(file_path, 'rb') as f:
-            first_bytes = f.read(1024)
-            
-        # Detecta assinaturas de HTML/MHTML
-        html_signatures = [
-            b'<!DOCTYPE html',
-            b'<html',
-            b'Content-Type: message/rfc822',
-            b'From: <Saved by',
-            b'Snapshot-Content-Location:',
-        ]
-        
-        first_bytes_str = first_bytes.decode('utf-8', errors='ignore')
-        
-        # Se contém assinatura HTML, é inválido
-        for html_sig in html_signatures:
-            if html_sig in first_bytes:
-                return False
-            if html_sig.decode('utf-8', errors='ignore').lower() in first_bytes_str.lower():
-                return False
-        
+        if os.path.getsize(path) < 100000:  # <100KB
+            return False
+        with open(path, 'rb') as f:
+            first = f.read(1024)
+        # heurísticas simples: não retornar HTML
+        if b'<!DOCTYPE html' in first or b'<html' in first:
+            return False
         return True
-        
-    except Exception as e:
-        print(f"Erro na validação do arquivo: {e}")
+    except Exception:
         return False
 
-def get_user_agent():
-    """Gera um User-Agent aleatório realista"""
-    user_agents = [
-        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Edge/120.0.0.0 Safari/537.36',
-        'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:121.0) Gecko/20100101 Firefox/121.0'
-    ]
-    return random.choice(user_agents)
+def safe_download_path(job_id, filename=None):
+    base = os.path.join(DOWNLOAD_ROOT, job_id)
+    os.makedirs(base, exist_ok=True)
+    if filename:
+        return os.path.join(base, filename)
+    return base
+
+def set_status(job_id, payload):
+    redis_client.set(f"job:{job_id}", json.dumps(payload))
+
+def get_status(job_id):
+    raw = redis_client.get(f"job:{job_id}")
+    if not raw:
+        return None
+    try:
+        return json.loads(raw)
+    except Exception:
+        return None
+
+def download_task(original_url, job_id):
+    # iniciar status
+    set_status(job_id, {'status': 'processing', 'url': original_url, 'message': 'Iniciando download', 'file_size': 0})
+
+    try:
+        # PLANO A: usar yt_dlp Python API
+        download_dir = safe_download_path(job_id)
+        ydl_opts = {
+            'format': 'best[ext=mp4]/best',
+            'outtmpl': os.path.join(download_dir, '%(title)s.%(ext)s'),
+            'noplaylist': True,
+            'progress_hooks': [lambda d: update_progress(job_id, d)],
+            'retries': 3,
+            'logtostderr': False,
+            'ignoreerrors': True,
+        }
+
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(original_url, download=True)
+            if not info:
+                raise Exception("Não foi possível extrair informações do vídeo")
+
+            # localizar arquivo baixado
+            base = ydl.prepare_filename(info)
+            if not base:
+                raise Exception("Arquivo não encontrado após download")
+
+            downloaded_file = base
+            # validação básica
+            if not is_valid_video_file_like(downloaded_file):
+                os.remove(downloaded_file)
+                raise Exception("Arquivo baixado não é um vídeo válido (padrões HTML possivelmente retornados)")
+
+            file_size = os.path.getsize(downloaded_file)
+            set_status(job_id, {
+                'status': 'completed',
+                'url': original_url,
+                'file_name': os.path.basename(downloaded_file),
+                'download_path': f'/download_file/{job_id}/{os.path.basename(downloaded_file)}',
+                'title': info.get('title', ''),
+                'thumbnail': info.get('thumbnail', ''),
+                'file_size': file_size,
+                'message': 'Download concluído com sucesso!'
+            })
+    except Exception as e:
+        msg = str(e)
+        set_status(job_id, {'status': 'failed', 'url': original_url, 'message': msg})
+
+def update_progress(job_id, d):
+    status = get_status(job_id) or {}
+    if not status:
+        status = {}
+    if d.get('status') == 'downloading':
+        status.update({'message': f"Baixando: {d.get('_percent_str','0%')}", 'file_size': d.get('total_bytes_estimate', 0)})
+    elif d.get('status') == 'finished':
+        status.update({'message': 'Processamento finalizado...'})
+    set_status(job_id, status)
+
+def validate_youtube_url(url):
+    try:
+        parsed = urlparse(url)
+        if parsed.scheme not in ('http', 'https'):
+            return False
+        if parsed.netloc == '':
+            return False
+        # permissões: somente domínios relacionados ao YouTube (com limitações simples)
+        if not re.search(r'(youtube.com|youtu.be|youtube-nocookie.com)', parsed.netloc, re.IGNORECASE):
+            return False
+        return True
+    except Exception:
+        return False
 
 @app.route('/')
 def index():
-    return render_template('index.html')
+    return jsonify({'status': 'ok', 'message': 'API rodando'}), 200
 
 @app.route('/api/download', methods=['POST'])
-def handle_download():
-    data = request.get_json()
-    video_url = data.get('url')
-    if not video_url: 
-        return jsonify({'error': 'URL obrigatória.'}), 400
-    
-    if video_url in download_status_map:
-        del download_status_map[video_url]
-    
-    download_status_map[video_url] = {'status': 'processing', 'message': 'Iniciando...'}
-    thread = threading.Thread(target=download_video_task, args=(video_url,))
+def api_download():
+    if not require_auth(request):
+        return jsonify({'error': 'Unauthorized'}), 401
+
+    data = request.get_json(force=True) or {}
+    video_url = data.get('url') or data.get('video_url')
+    if not video_url:
+        return jsonify({'error': "URL 'url' obrigatório"}), 400
+
+    if not validate_youtube_url(video_url):
+        return jsonify({'error': 'URL inválida ou não suportada'}), 400
+
+    job_id = str(uuid.uuid4())
+    # iniciar tarefa em thread (simples) - para produção, considerar uma fila
+    thread = threading.Thread(target=download_task, args=(video_url, job_id), daemon=True)
     thread.start()
-    return jsonify({'status': 'processing', 'video_url': video_url})
 
-@app.route('/api/check_status', methods=['POST'])
-def check_download_status():
-    data = request.get_json()
-    video_url = data.get('url')
-    status_info = download_status_map.get(video_url)
-    if status_info:
-        status_info.setdefault('file_size', 0)
-        return jsonify(status_info)
-    return jsonify({'status': 'not_found'}), 404
+    set_status(job_id, {'status': 'queued', 'url': video_url, 'message': 'Job enfileirado'})
+    return jsonify({'job_id': job_id, 'status': 'queued'}), 202
 
-def download_video_task(video_url):
-    original_url = video_url
-    download_info = download_status_map.setdefault(original_url, {})
-    download_info.update({'status': 'processing', 'file_size': 0})
-    
-    try:
-        is_youtube = "youtube.com" in original_url or "youtu.be" in original_url
+@app.route('/api/status', methods=['POST'])
+def api_status():
+    if not require_auth(request):
+        return jsonify({'error': 'Unauthorized'}), 401
 
-        # --- CONFIGURAÇÃO YT-DLP COM BYPASS ---
-        print("Iniciando download com yt-dlp (com bypass)")
-        
-        ydl_opts = {
-            'format': 'best[ext=mp4]/best[ext=webm]/best',
-            'outtmpl': os.path.join(DOWNLOAD_FOLDER, f'{uuid.uuid4()}.%(ext)s'),
-            'noplaylist': True,
-            'progress_hooks': [lambda d: update_download_progress(d, original_url)],
-            'retries': 5,
-            'fragment_retries': 5,
-            'ignoreerrors': False,
-            'extract_flat': False,
-            
-            # Configurações para bypass do YouTube
-            'http_headers': {
-                'User-Agent': get_user_agent(),
-                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-                'Accept-Language': 'pt-BR,pt;q=0.9,en;q=0.8',
-                'Accept-Encoding': 'gzip, deflate, br',
-                'DNT': '1',
-                'Connection': 'keep-alive',
-                'Upgrade-Insecure-Requests': '1',
-            },
-            
-            # Throttle para parecer mais humano
-            'throttled_rate': '1M',
-            'sleep_interval': 2,
-            'max_sleep_interval': 5,
-            
-            # Configurações específicas do YouTube
-            'youtube_include_dash_manifest': False,
-            'youtube_include_hls_manifest': False,
-        }
+    data = request.get_json(force=True) or {}
+    job_id = data.get('job_id')
+    if not job_id:
+        return jsonify({'error': 'job_id obrigatório'}), 400
 
-        # Tenta primeiro sem cookies
-        try:
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                info = ydl.extract_info(original_url, download=True)
-        except Exception as first_error:
-            print(f"Primeira tentativa falhou: {first_error}. Tentando com cookies...")
-            
-            # Se falhou, tenta com cookies se existirem
-            cookies_file = 'cookies.txt'
-            if os.path.exists(cookies_file):
-                ydl_opts['cookiefile'] = cookies_file
-                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                    info = ydl.extract_info(original_url, download=True)
-            else:
-                # Se não tem cookies, tenta com formato diferente
-                ydl_opts['format'] = 'worst[ext=mp4]/worst'
-                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                    info = ydl.extract_info(original_url, download=True)
-        
-        if not info:
-            raise yt_dlp.utils.DownloadError("Não foi possível extrair informações do vídeo")
-        
-        # Encontra o arquivo baixado
-        downloaded_file = ydl.prepare_filename(info)
-        
-        # VERIFICAÇÃO CRÍTICA: É mesmo um vídeo?
-        if not is_valid_video_file(downloaded_file):
-            if os.path.exists(downloaded_file):
-                os.remove(downloaded_file)
-            raise yt_dlp.utils.DownloadError("Arquivo baixado não é um vídeo válido (provavelmente HTML).")
+    status = get_status(job_id)
+    if not status:
+        return jsonify({'status': 'not_found'}), 404
+    return jsonify(status), 200
 
-        base_filename = os.path.basename(downloaded_file)
-        file_size = os.path.getsize(downloaded_file)
-        
-        download_info.update({
-            'status': 'completed', 
-            'file_name': base_filename,
-            'download_link': f'/download_file/{base_filename}',
-            'title': info.get('title', 'Vídeo'), 
-            'thumbnail': info.get('thumbnail', ''),
-            'file_size': file_size,
-            'message': 'Download concluído com sucesso!'
-        })
-        print(f"Download concluído: {base_filename}")
+@app.route('/download_file/<job_id>/<path:filename>')
+def download_file(job_id, filename):
+    # Serve de forma segura apenas se houver o arquivo correspondente e válido
+    file_path = os.path.join(safe_download_path(job_id), filename)
+    if not os.path.exists(file_path) or not is_valid_video_file_like(file_path):
+        return jsonify({'error': 'Arquivo não encontrado ou inválido'}), 404
 
-    except Exception as e:
-        msg = clean_ansi_codes(str(e))
-        print(f"Erro final: {msg}")
-        
-        # Mensagem mais amigável para o usuário
-        if "Sign in to confirm" in msg or "bot" in msg.lower():
-            user_msg = "YouTube bloqueou o download. Tente novamente em alguns minutos ou use outro vídeo."
-        else:
-            user_msg = f'Falha no download: {msg.split(":")[-1].strip()}'
-        
-        download_info.update({
-            'status': 'failed', 
-            'message': user_msg
-        })
+    # Evita path traversal apenas servindo a partir do diretório permitido
+    base_dir = os.path.abspath(safe_download_path(job_id))
+    requested_path = os.path.abspath(file_path)
+    if not requested_path.startswith(base_dir):
+        return jsonify({'error': 'Acesso negado'}), 403
 
-def update_download_progress(d, video_url):
-    info = download_status_map.setdefault(video_url, {})
-    if d['status'] == 'downloading':
-        percent = clean_ansi_codes(d.get('_percent_str','0%'))
-        eta = clean_ansi_codes(d.get('_eta_str',''))
-        info.update({
-            'message': f"Baixando: {percent} ETA: {eta}", 
-            'file_size': d.get('total_bytes_estimate', 0)
-        })
-    elif d['status'] == 'finished':
-        info.update({'message': 'Processamento finalizado...'})
-
-@app.route('/download_file/<path:filename>')
-def serve_downloaded_file(filename):
-    file_path = os.path.join(DOWNLOAD_FOLDER, filename)
-    
-    # Verificação final de segurança
-    if not is_valid_video_file(file_path):
-        return jsonify({'error': 'Arquivo inválido ou corrompido'}), 400
-    
-    return send_file(file_path, as_attachment=True)
-
-# Limpeza automática de arquivos antigos
-def cleanup_old_files():
-    try:
-        for filename in os.listdir(DOWNLOAD_FOLDER):
-            file_path = os.path.join(DOWNLOAD_FOLDER, filename)
-            # Remove arquivos com mais de 1 hora
-            if os.path.getmtime(file_path) < (time.time() - 3600):
-                os.remove(file_path)
-                print(f"Arquivo antigo removido: {filename}")
-    except Exception as e:
-        print(f"Erro na limpeza: {e}")
+    return send_from_directory(base_dir, filename, as_attachment=True)
 
 if __name__ == '__main__':
-    import time
-    # Limpa arquivos antigos ao iniciar
-    cleanup_old_files()
-    
-    port = int(os.environ.get('PORT', 5000))
-    app.run(debug=True, host='0.0.0.0', port=port)
+    app.run(host=APP_HOST, port=APP_PORT, debug=False)
