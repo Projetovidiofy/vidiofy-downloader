@@ -1,1 +1,186 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Vidiofy - Baixe Vídeos de Todas as Plataformas</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
+</head>
+<body>
+
+    <header>
+        <div class="container">
+            <h1>Vidiofy</h1>
+            <nav>
+                <i class="fa-solid fa-circle-half-stroke"></i>
+            </nav>
+        </div>
+    </header>
+
+    <main>
+        <section class="hero">
+            <div class="container">
+                <h2>Baixe Vídeos de Todas as Plataformas</h2>
+                <p>O melhor baixador de vídeos online e gratuito</p>
+            </div>
+        </section>
+
+        <section class="download-form">
+            <div class="container">
+                <form id="url-form">
+                    <div class="input-wrapper">
+                        <i class="fa-solid fa-link"></i>
+                        <input type="url" id="video-url" placeholder="Cole o link do vídeo aqui..." required>
+                    </div>
+                    <button type="submit">Baixar</button>
+                </form>
+                <div id="download-results" class="download-results"></div>
+            </div>
+        </section>
+
+        <section class="tools-section">
+            <div class="container">
+                <h3>Ferramentas de Download</h3>
+                <div class="tools-grid">
+                    <div class="tool-card">
+                        <i class="fa-brands fa-tiktok"></i>
+                        <p>Baixador de TikTok sem marca d'água</p>
+                    </div>
+                    <div class="tool-card">
+                        <i class="fa-brands fa-instagram"></i>
+                        <p>Download de Reels, Stories e Vídeos</p>
+                    </div>
+                    <div class="tool-card">
+                        <i class="fa-brands fa-facebook"></i>
+                        <p>Salvar vídeos e stories do Facebook em HD</p>
+                    </div>
+                    <div class="tool-card">
+                        <i class="fa-solid fa-k"></i>
+                        <p>Baixar vídeos do Kwai sem logo</p>
+                    </div>
+                    <div class="tool-card">
+                        <i class="fa-brands fa-twitter"></i>
+                        <p>Conversor fácil de vídeos do Twitter para MP4</p>
+                    </div>
+                    <div class="tool-card">
+                        <i class="fa-brands fa-pinterest"></i>
+                        <p>Baixar vídeos e imagens do Pinterest</p>
+                    </div>
+                     <div class="tool-card">
+                        <i class="fa-brands fa-youtube"></i>
+                        <p>Baixar vídeos do YouTube em alta qualidade</p>
+                    </div>
+                     <div class="tool-card">
+                        <i class="fa-brands fa-soundcloud"></i>
+                        <p>SoundCloud Downloader para MP3</p>
+                    </div>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <footer>
+        <div class="container">
+            <p>&copy; 2025 Vidiofy. Todos os direitos reservados.</p>
+            <div class="footer-links">
+                <a href="#">Política de Privacidade</a>
+                <a href="#">Termos de Serviço</a>
+            </div>
+        </div>
+    </footer>
+
+    <script>
+        const downloadResultsDiv = document.getElementById('download-results');
+        let currentPollingInterval = null;
+
+        document.getElementById('url-form').addEventListener('submit', async function(event) {
+            event.preventDefault();
+            const videoUrl = document.getElementById('video-url').value;
+            const submitButton = this.querySelector('button');
+            
+            submitButton.disabled = true;
+            submitButton.textContent = 'Iniciando...';
+            downloadResultsDiv.innerHTML = '<p class="status-message">Iniciando download...</p>';
+
+            // Limpa qualquer polling anterior
+            if (currentPollingInterval) {
+                clearInterval(currentPollingInterval);
+            }
+
+            try {
+                const response = await fetch('/api/download', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ url: videoUrl }),
+                });
+
+                const result = await response.json();
+
+                if (response.ok) {
+                    console.log('Download iniciado:', result);
+                    // Começa a verificar o status a cada X segundos
+                    currentPollingInterval = setInterval(() => checkDownloadStatus(videoUrl), 3000); // Verifica a cada 3 segundos
+                } else {
+                    console.error('Erro ao iniciar download:', result);
+                    downloadResultsDiv.innerHTML = `<p class="error-message">Erro: ${result.error || 'Ocorreu um problema ao iniciar o download.'}</p>`;
+                    submitButton.disabled = false;
+                    submitButton.textContent = 'Baixar';
+                }
+            } catch (error) {
+                console.error('Erro de rede:', error);
+                downloadResultsDiv.innerHTML = '<p class="error-message">Erro de rede. Verifique se o servidor Python está rodando.</p>';
+                submitButton.disabled = false;
+                submitButton.textContent = 'Baixar';
+            }
+        });
+
+        async function checkDownloadStatus(videoUrl) {
+            const submitButton = document.querySelector('#url-form button');
+            try {
+                const response = await fetch('/api/check_status', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ url: videoUrl }),
+                });
+                const statusResult = await response.json();
+
+                if (statusResult.status === 'completed') {
+                    clearInterval(currentPollingInterval); // Para de verificar
+                    downloadResultsDiv.innerHTML = `
+                        <div class="video-card-result">
+                            <img src="${statusResult.thumbnail}" alt="Thumbnail do vídeo" class="video-thumbnail">
+                            <div class="video-details">
+                                <h4>${statusResult.title}</h4>
+                                <a href="${statusResult.download_link}" class="download-button" download="${statusResult.file_name}">
+                                    <i class="fa-solid fa-download"></i> Baixar ${statusResult.file_name.split('.').pop().toUpperCase()}
+                                </a>
+                                <p class="status-message">Tamanho: ${(statusResult.file_size / (1024 * 1024)).toFixed(2)} MB</p>
+                            </div>
+                        </div>
+                    `;
+                    submitButton.disabled = false;
+                    submitButton.textContent = 'Baixar';
+                } else if (statusResult.status === 'failed') {
+                    clearInterval(currentPollingInterval);
+                    downloadResultsDiv.innerHTML = `<p class="error-message">Falha no download: ${statusResult.message}</p>`;
+                    submitButton.disabled = false;
+                    submitButton.textContent = 'Baixar';
+                } else {
+                    // Atualiza a mensagem de progresso (ex: "Baixando: 25% - 00:30 ETA")
+                    downloadResultsDiv.innerHTML = `<p class="status-message">${statusResult.message}</p>`;
+                }
+
+            } catch (error) {
+                console.error('Erro ao verificar status:', error);
+                clearInterval(currentPollingInterval);
+                downloadResultsDiv.innerHTML = '<p class="error-message">Erro ao verificar o status do download.</p>';
+                submitButton.disabled = false;
+                submitButton.textContent = 'Baixar';
+            }
+        }
+    </script>
+
+</body>
+</html>
 
