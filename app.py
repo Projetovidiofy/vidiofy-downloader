@@ -5,7 +5,6 @@ import uuid
 import threading
 import re
 import requests
-import magic  # Para detectar tipo MIME do arquivo
 
 app = Flask(__name__)
 
@@ -19,26 +18,62 @@ def clean_ansi_codes(text):
     return re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])').sub('', text)
 
 def is_valid_video_file(file_path):
-    """Verifica se o arquivo é realmente um vídeo"""
+    """Verifica se o arquivo é realmente um vídeo SEM usar magic"""
     try:
-        # Usa magic para detectar o tipo MIME
-        mime = magic.Magic(mime=True)
-        file_type = mime.from_file(file_path)
-        
-        # Verifica se é um vídeo
-        if file_type.startswith('video/'):
-            return True
-        # Verifica se é HTML/MHTML
-        elif file_type in ['text/html', 'message/rfc822', 'application/x-mimearchive']:
-            return False
-        else:
-            # Para outros tipos, verifica pela extensão
-            ext = os.path.splitext(file_path)[1].lower()
-            return ext in ['.mp4', '.webm', '.mkv', '.mov', '.avi', '.flv']
-    except:
-        # Fallback: verifica pela extensão
+        # Verificação 1: pela extensão
         ext = os.path.splitext(file_path)[1].lower()
-        return ext in ['.mp4', '.webm', '.mkv', '.mov', '.avi', '.flv']
+        valid_extensions = ['.mp4', '.webm', '.mkv', '.mov', '.avi', '.flv', '.m4v']
+        
+        if ext not in valid_extensions:
+            return False
+        
+        # Verificação 2: pelo tamanho do arquivo (MHTML geralmente é pequeno)
+        file_size = os.path.getsize(file_path)
+        if file_size < 100000:  # Menos de 100KB provavelmente não é vídeo
+            return False
+        
+        # Verificação 3: pelo conteúdo (lê os primeiros bytes)
+        with open(file_path, 'rb') as f:
+            first_bytes = f.read(1024)  # Lê os primeiros 1KB
+            
+        # Detecta assinaturas de vídeo
+        video_signatures = [
+            b'\x00\x00\x00\x18ftyp',  # MP4
+            b'\x1A\x45\xDF\xA3',      # WebM
+            b'\x00\x00\x00\x1Cftyp',  # Mais MP4
+            b'\x52\x49\x46\x46',      # AVI, WAV (RIFF)
+        ]
+        
+        # Detecta assinaturas de HTML/MHTML
+        html_signatures = [
+            b'<!DOCTYPE html',
+            b'<html',
+            b'Content-Type: message/rfc822',
+            b'From: <Saved by',
+            b'Snapshot-Content-Location:',
+            b'<!DOCTYPE HTML',
+        ]
+        
+        first_bytes_str = first_bytes.decode('utf-8', errors='ignore')
+        
+        # Se contém assinatura HTML, é inválido
+        for html_sig in html_signatures:
+            if html_sig in first_bytes:
+                return False
+            if html_sig.decode('utf-8', errors='ignore').lower() in first_bytes_str.lower():
+                return False
+        
+        # Se tem assinatura de vídeo, é válido
+        for video_sig in video_signatures:
+            if first_bytes.startswith(video_sig):
+                return True
+        
+        # Fallback: se não detectou nenhum, confia na extensão
+        return True
+        
+    except Exception as e:
+        print(f"Erro na validação do arquivo: {e}")
+        return False
 
 @app.route('/')
 def index():
@@ -51,7 +86,6 @@ def handle_download():
     if not video_url: 
         return jsonify({'error': 'URL obrigatória.'}), 400
     
-    # Limpa URL antiga se existir
     if video_url in download_status_map:
         del download_status_map[video_url]
     
@@ -78,86 +112,8 @@ def download_video_task(video_url):
     try:
         is_youtube = "youtube.com" in original_url or "youtu.be" in original_url
 
-        # --- PLANO A: TENTAR API EXTERNA (COBALT) ---
-        if is_youtube:
-            try:
-                download_info['message'] = 'Tentando API externa (Cobalt)...'
-                print(f"Iniciando tentativa com Cobalt para: {original_url}")
-                
-                api_url = "https://co.wuk.sh/api/json"
-                headers = {'Accept': 'application/json', 'Content-Type': 'application/json'}
-                data = {
-                    "url": original_url, 
-                    "vQuality": "720p",  # Qualidade mais compatível
-                    "aFormat": "mp3",
-                    "isAudioOnly": False,
-                    "isNoTTWatermark": True,
-                    "dubLang": False
-                }
-                
-                resp = requests.post(api_url, headers=headers, json=data, timeout=30)
-                
-                if resp.status_code != 200:
-                    raise ValueError(f"API retornou status {resp.status_code}")
-                
-                result = resp.json()
-                print(f"Resposta da API: {result}")
-
-                if result.get("status") == "stream" and result.get("url"):
-                    api_download_url = result.get("url")
-                    print(f"Sucesso com Cobalt! Baixando de {api_download_url}")
-                    
-                    # Obter informações do vídeo
-                    with yt_dlp.YoutubeDL({'quiet': True, 'skip_download': True}) as ydl:
-                        info = ydl.extract_info(original_url, download=False)
-                        title = info.get('title', 'Vídeo do YouTube')
-                        thumbnail = info.get('thumbnail', '')
-                    
-                    download_info.update({
-                        'message': 'API encontrou! Baixando...', 
-                        'title': title, 
-                        'thumbnail': thumbnail
-                    })
-
-                    unique_filename = f"{uuid.uuid4()}.mp4"
-                    output_path = os.path.join(DOWNLOAD_FOLDER, unique_filename)
-
-                    # Download do arquivo
-                    with requests.get(api_download_url, stream=True, timeout=30) as r:
-                        r.raise_for_status()
-                        total_size = int(r.headers.get('content-length', 0))
-                        
-                        with open(output_path, 'wb') as f:
-                            for chunk in r.iter_content(chunk_size=8192):
-                                if chunk:
-                                    f.write(chunk)
-                    
-                    # VERIFICAÇÃO CRÍTICA: É mesmo um vídeo?
-                    if not is_valid_video_file(output_path):
-                        os.remove(output_path)
-                        raise ValueError("Arquivo baixado não é um vídeo válido (provavelmente HTML).")
-                    
-                    file_size = os.path.getsize(output_path)
-                    
-                    download_info.update({
-                        'status': 'completed', 
-                        'message': 'Download via API concluído!', 
-                        'file_name': unique_filename, 
-                        'download_link': f'/download_file/{unique_filename}', 
-                        'file_size': file_size
-                    })
-                    print("Download via Cobalt concluído com sucesso.")
-                    return
-
-                else:
-                    raise ValueError(f"Cobalt não retornou stream válido: {result}")
-
-            except Exception as e:
-                print(f"API Cobalt falhou: {e}. Ativando Plano B (yt-dlp)...")
-                download_info['message'] = 'API externa falhou, ativando Plano B...'
-        
-        # --- PLANO B: YT-DLP DIRETO (MAIS CONFIÁVEL) ---
-        print("Iniciando download com yt-dlp (Plano B)")
+        # --- PLANO A: YT-DLP DIRETO (MAIS CONFIÁVEL) ---
+        print("Iniciando download com yt-dlp")
         
         ydl_opts = {
             'format': 'best[ext=mp4]/best[ext=webm]/best',
@@ -167,8 +123,6 @@ def download_video_task(video_url):
             'retries': 3, 
             'fragment_retries': 3,
             'ignoreerrors': False,
-            'quiet': False,
-            'no_warnings': False,
         }
 
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -180,7 +134,7 @@ def download_video_task(video_url):
             # Encontra o arquivo baixado
             downloaded_file = ydl.prepare_filename(info)
             
-            # VERIFICAÇÃO: É mesmo um vídeo?
+            # VERIFICAÇÃO CRÍTICA: É mesmo um vídeo?
             if not is_valid_video_file(downloaded_file):
                 if os.path.exists(downloaded_file):
                     os.remove(downloaded_file)
@@ -198,7 +152,7 @@ def download_video_task(video_url):
                 'file_size': file_size,
                 'message': 'Download concluído com sucesso!'
             })
-            print(f"Download (Plano B) concluído: {base_filename}")
+            print(f"Download concluído: {base_filename}")
 
     except Exception as e:
         msg = clean_ansi_codes(str(e))
@@ -213,9 +167,8 @@ def update_download_progress(d, video_url):
     if d['status'] == 'downloading':
         percent = clean_ansi_codes(d.get('_percent_str','0%'))
         eta = clean_ansi_codes(d.get('_eta_str',''))
-        speed = clean_ansi_codes(d.get('_speed_str',''))
         info.update({
-            'message': f"Baixando: {percent} - {speed} - ETA: {eta}", 
+            'message': f"Baixando: {percent} ETA: {eta}", 
             'file_size': d.get('total_bytes_estimate', 0)
         })
     elif d['status'] == 'finished':
@@ -230,18 +183,6 @@ def serve_downloaded_file(filename):
         return jsonify({'error': 'Arquivo inválido ou corrompido'}), 400
     
     return send_file(file_path, as_attachment=True)
-
-# Instalação da biblioteca magic
-def install_magic():
-    try:
-        import magic
-    except ImportError:
-        print("Instalando python-magic...")
-        os.system("pip install python-magic")
-        import magic
-
-# Chama a instalação no início
-install_magic()
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
