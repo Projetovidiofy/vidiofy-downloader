@@ -1,4 +1,205 @@
+/* Importando uma fonte moderna do Google Fonts */
+@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap');
+
+/* Variáveis de Cores */
+:root {
+    --primary-color: #5a67d8;
+    --background-color: #f7fafc;
+    --card-background: #ffffff;
+    --text-color: #2d3748;
+    --subtle-text: #718096;
+    --border-color: #e2e8f0;
+    --shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+}
+
+/* Reset Básico */
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: 'Poppins', sans-serif;
+    background-color: var(--background-color);
+    color: var(--text-color);
+    line-height: 1.6;
+}
+
+.container {
+    max-width: 1100px;
+    margin: 0 auto;
+    padding: 0 20px;
+}
+
+/* Header */
+header {
+    background-color: var(--card-background);
+    box-shadow: var(--shadow);
+    padding: 1rem 0;
+    position: sticky;
+    top: 0;
+    z-index: 10;
+}
+
+header .container {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+header h1 {
+    color: var(--primary-color);
+    font-weight: 700;
+}
+
+header nav i {
+    font-size: 1.5rem;
+    cursor: pointer;
+}
+
+/* Seção Hero */
+.hero {
+    text-align: center;
+    padding: 4rem 0;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+}
+
+.hero h2 {
+    font-size: 2.5rem;
+    margin-bottom: 0.5rem;
+}
+
+/* Seção do Formulário de Download */
+.download-form-section {
+    padding-top: 2rem;
+    margin-top: -40px;
+    position: relative;
+}
+
+.download-form-section .container {
+    max-width: 700px;
+}
+
+#url-form {
+    display: flex;
+    background: var(--card-background);
+    border-radius: 12px;
+    box-shadow: var(--shadow);
+    padding: 10px;
+}
+
+.input-wrapper {
+    flex-grow: 1;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding-left: 15px;
+}
+
+.input-wrapper i {
+    color: var(--subtle-text);
+}
+
+#url-form input {
+    width: 100%;
+    border: none;
+    outline: none;
+    font-size: 1rem;
+    padding: 10px 0;
+    background: transparent;
+}
+
+#url-form button {
+    background-color: var(--primary-color);
+    color: white;
+    border: none;
+    border-radius: 8px;
+    padding: 0 25px;
+    font-size: 1rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background-color 0.3s ease;
+    min-width: 110px; /* Largura mínima para o botão */
+}
+
+#url-form button:hover {
+    background-color: #434190;
+}
+
+#url-form button:disabled {
+    background-color: #a0aec0;
+    cursor: not-allowed;
+}
+
+
+/* Seção de Ferramentas e Resultados */
+.tools-section, .results-section {
+    padding: 2rem 0;
+}
+
+.tools-section h3 {
+    text-align: center;
+    font-size: 1.8rem;
+    margin-bottom: 2rem;
+}
+
+.tools-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+    gap: 1.5rem;
+}
+
+.tool-card {
+    background: var(--card-background);
+    border-radius: 12px;
+    padding: 2rem;
+    text-align: center;
+    box-shadow: var(--shadow);
+    border: 1px solid var(--border-color);
+    transition: transform 0.3s ease, box-shadow 0.3s ease;
+}
+
+.tool-card:hover {
+    transform: translateY(-5px);
+    box-shadow: 0 8px 15px rgba(0, 0, 0, 0.1);
+}
+
+.tool-card i {
+    font-size: 3rem;
+    margin-bottom: 1rem;
+    color: var(--primary-color);
+}
+
+/* Footer */
+footer {
+    background-color: #e2e8f0;
+    padding: 2rem 0;
+    text-align: center;
+    color: var(--subtle-text);
+}
+
+footer .container {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.footer-links a {
+    color: var(--subtle-text);
+    text-decoration: none;
+    margin: 0 10px;
+}
+
+.footer-links a:hover {
+    color: var(--primary-color);
+}
+
 /* --- ESTILOS DAS MELHORIAS --- */
+.results-section .container {
+    max-width: 700px;
+}
 
 /* Botão de download com loader */
 .download-form button {
@@ -11,6 +212,21 @@
 }
 
 /* Card de status (processando) */
+.download-card {
+    margin-top: 1.5rem;
+    padding: 1.5rem;
+    background-color: var(--card-background);
+    border-radius: 12px;
+    box-shadow: var(--shadow);
+    border: 1px solid var(--border-color);
+    width: 100%;
+    max-width: 700px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+}
+
 .download-card.status-card {
     background-color: #ebf8ff;
     border-color: #90cdf4;
@@ -19,6 +235,16 @@
     font-size: 2.5rem;
     color: var(--primary-color);
     margin-bottom: 1rem;
+}
+
+/* Card de erro */
+.download-card.error-card {
+    background-color: #fed7d7;
+    border-color: #fc8181;
+}
+.error-message {
+    color: #c53030;
+    font-weight: 500;
 }
 
 /* Detalhes do arquivo no card de sucesso */
@@ -35,11 +261,6 @@
     gap: 0.5rem;
     align-items: center;
     justify-content: center;
-}
-@media (min-width: 600px) {
-    .button-group {
-        justify-content: flex-start;
-    }
 }
 
 /* Botão de copiar link */
@@ -59,5 +280,75 @@
     background-color: var(--text-color);
 }
 .copy-button i {
-    color: white; /* Garante que o ícone seja branco */
+    color: white;
+}
+
+/* Card de sucesso */
+.download-card.completed-card {
+    flex-direction: row;
+    text-align: left;
+    align-items: flex-start;
+    gap: 1.5rem;
+}
+.video-thumbnail {
+    width: 150px;
+    height: auto;
+    border-radius: 8px;
+    object-fit: cover;
+}
+.video-details {
+    flex-grow: 1;
+    text-align: left;
+}
+.video-details h4 {
+    font-size: 1.25rem;
+    margin-bottom: 0.5rem;
+    color: var(--text-color);
+}
+.download-button {
+    display: inline-flex;
+    align-items: center;
+    background-color: #38a169;
+    color: white;
+    padding: 10px 20px;
+    border-radius: 8px;
+    text-decoration: none;
+    font-weight: 600;
+    transition: background-color 0.3s ease;
+}
+.download-button:hover {
+    background-color: #2f855a;
+}
+.download-button i {
+    margin-right: 8px;
+    color: white;
+}
+
+/* Responsividade */
+@media (max-width: 768px) {
+    .hero h2 {
+        font-size: 2rem;
+    }
+
+    #url-form {
+        flex-direction: column;
+        gap: 10px;
+        padding: 20px;
+    }
+
+    #url-form button {
+        padding: 15px;
+    }
+
+    .download-card.completed-card {
+        flex-direction: column;
+        text-align: center;
+        align-items: center;
+    }
+    .video-details {
+        text-align: center;
+    }
+    .button-group {
+        justify-content: center;
+    }
 }
