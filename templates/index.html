@@ -38,6 +38,19 @@
         <section class="results-section">
             <div class="container" id="download-results"></div>
         </section>
+
+        <div style="display: flex; justify-content: center; margin: 2rem 0;">
+            <script type="text/javascript">
+                atOptions = {
+                    'key' : 'b7ec286d7fee33fe9d365530f97986ef',
+                    'format' : 'iframe',
+                    'height' : 250,
+                    'width' : 300,
+                    'params' : {}
+                };
+            </script>
+            <script type="text/javascript" src="//victimfatalsentiments.com/b7ec286d7fee33fe9d365530f97986ef/invoke.js"></script>
+        </div>
         <section class="tools-section">
             <div class="container">
                 <h3>Ferramentas de Download</h3>
@@ -53,7 +66,13 @@
                 </div>
             </div>
         </section>
-    </main>
+
+        <div style="display: flex; justify-content: center; margin: 2rem 0;">
+            <a href="https://amzn.to/4nmrlKv" target="_blank" rel="noopener noreferrer" style="display:block; text-align:center;">
+                <img src="https://m.media-amazon.com/images/I/51VxwPPv38L._AC_SX679_.jpg" alt="Oferta de Notebook ASUS na Amazon" style="max-width:300px; height:auto; border:1px solid #ddd; border-radius:8px;">
+            </a>
+        </div>
+        </main>
     <footer>
         <div class="container">
             <p>&copy; 2025 Vidiofy. Todos os direitos reservados.</p>
@@ -161,9 +180,7 @@
             submitButton.disabled = false;
         }
         
-        // NOVA FUNÇÃO
         function scrollToTopAfterDownload() {
-            // Adiciona um pequeno atraso para garantir que o download iniciou
             setTimeout(() => {
                 form.scrollIntoView({ behavior: 'smooth' });
             }, 500);
