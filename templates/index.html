@@ -95,7 +95,107 @@
     <script>
         const form = document.getElementById('url-form');
         const urlInput = document.getElementById('video-url');
-        // ... (resto do script)
+        const submitButton = form.querySelector('button');
+        const buttonText = submitButton.querySelector('.button-text');
+        const buttonLoader = submitButton.querySelector('.button-loader');
+        const resultsDiv = document.getElementById('download-results');
+        let pollingInterval = null;
+
+        form.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const videoUrl = urlInput.value;
+            
+            buttonText.style.display = 'none';
+            buttonLoader.style.display = 'inline';
+            submitButton.disabled = true;
+            resultsDiv.innerHTML = `
+                <div class="download-card status-card">
+                    <i class="fa-solid fa-spinner fa-spin status-icon"></i>
+                    <p class="status-message">Analisando o link...</p>
+                </div>`;
+
+            if (pollingInterval) clearInterval(pollingInterval);
+
+            try {
+                const response = await fetch('/api/download', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ url: videoUrl }),
+                });
+                const result = await response.json();
+                if (response.ok) {
+                    pollingInterval = setInterval(() => checkStatus(videoUrl), 2000);
+                } else {
+                    handleFailure(result.message || 'Erro ao iniciar o processo.');
+                }
+            } catch (error) {
+                handleFailure('Erro de rede. O servidor está offline?');
+            }
+        });
+
+        async function checkStatus(videoUrl) {
+            try {
+                const response = await fetch('/api/check_status', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ url: videoUrl }),
+                });
+                const result = await response.json();
+
+                if (result.status === 'completed') {
+                    clearInterval(pollingInterval);
+                    const fileSizeMB = (result.file_size / (1024 * 1024)).toFixed(2);
+                    resultsDiv.innerHTML = `
+                        <div class="download-card completed-card">
+                            <img src="${result.thumbnail}" alt="Thumbnail" class="video-thumbnail">
+                            <div class="video-details">
+                                <h4>${result.title}</h4>
+                                <p class="file-info">Tamanho: ${fileSizeMB} MB</p>
+                                <div class="button-group">
+                                    <a href="${result.download_link}" class="download-button" download="${result.file_name}">
+                                        <i class="fa-solid fa-download"></i> Baixar MP4
+                                    </a>
+                                    <button class="copy-button" onclick="copyToClipboard('${window.location.origin}${result.download_link}')">
+                                        <i class="fa-solid fa-copy"></i>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>`;
+                    resetForm();
+                } else if (result.status === 'failed') {
+                    handleFailure(result.message);
+                } else {
+                    resultsDiv.innerHTML = `
+                        <div class="download-card status-card">
+                            <i class="fa-solid fa-spinner fa-spin status-icon"></i>
+                            <p class="status-message">${result.message}</p>
+                        </div>`;
+                }
+            } catch (error) {
+                handleFailure('Erro ao verificar o status.');
+            }
+        }
+
+        function handleFailure(message) {
+            clearInterval(pollingInterval);
+            resultsDiv.innerHTML = `<div class="download-card error-card"><p class="error-message">Falha: ${message}</p></div>`;
+            resetForm(false);
+        }
+
+        function resetForm(clearInput = true) {
+            if (clearInput) urlInput.value = '';
+            buttonText.style.display = 'inline';
+            buttonLoader.style.display = 'none';
+            submitButton.disabled = false;
+        }
+
+        function copyToClipboard(text) {
+            navigator.clipboard.writeText(text).then(() => {
+                alert('Link de download copiado para a área de transferência!');
+            }).catch(err => {
+                alert('Não foi possível copiar o link.');
+            });
+        }
     </script>
 </body>
 </html>
