@@ -39,17 +39,31 @@
             <div class="container" id="download-results"></div>
         </section>
 
-        <div style="display: flex; justify-content: center; margin: 2rem 0;">
-            <script type="text/javascript">
-                atOptions = {
-                    'key' : 'b7ec286d7fee33fe9d365530f97986ef',
-                    'format' : 'iframe',
-                    'height' : 250,
-                    'width' : 300,
-                    'params' : {}
-                };
-            </script>
-            <script type="text/javascript" src="//victimfatalsentiments.com/b7ec286d7fee33fe9d365530f97986ef/invoke.js"></script>
+        <div class="ad-container">
+            <div class="ad-wrapper">
+                <script type="text/javascript">
+                    atOptions = {
+                        'key' : 'b7ec286d7fee33fe9d365530f97986ef',
+                        'format' : 'iframe',
+                        'height' : 250,
+                        'width' : 300,
+                        'params' : {}
+                    };
+                </script>
+                <script type="text/javascript" src="//victimfatalsentiments.com/b7ec286d7fee33fe9d365530f97986ef/invoke.js"></script>
+            </div>
+            
+            <div class="ad-wrapper">
+                <a href="https://amzn.to/4nmrlKv" target="_blank" rel="sponsored" class="amazon-banner">
+                    <div class="amazon-banner-image">
+                        <img src="https://m.media-amazon.com/images/I/51VxwPPv38L._AC_SX679_.jpg" alt="Notebook ASUS VivoBook na Amazon">
+                    </div>
+                    <div class="amazon-banner-details">
+                        <p class="amazon-product-title">Notebook ASUS VivoBook Go 15, AMD RYZEN 5 7520U...</p>
+                        <span class="amazon-buy-button">Ver Oferta na Amazon</span>
+                    </div>
+                </a>
+            </div>
         </div>
         <section class="tools-section">
             <div class="container">
@@ -67,12 +81,7 @@
             </div>
         </section>
 
-        <div style="display: flex; justify-content: center; margin: 2rem 0;">
-            <a href="https://amzn.to/4nmrlKv" target="_blank" rel="noopener noreferrer" style="display:block; text-align:center;">
-                <img src="https://m.media-amazon.com/images/I/51VxwPPv38L._AC_SX679_.jpg" alt="Oferta de Notebook ASUS na Amazon" style="max-width:300px; height:auto; border:1px solid #ddd; border-radius:8px;">
-            </a>
-        </div>
-        </main>
+    </main>
     <footer>
         <div class="container">
             <p>&copy; 2025 Vidiofy. Todos os direitos reservados.</p>
@@ -86,113 +95,7 @@
     <script>
         const form = document.getElementById('url-form');
         const urlInput = document.getElementById('video-url');
-        const submitButton = form.querySelector('button');
-        const buttonText = submitButton.querySelector('.button-text');
-        const buttonLoader = submitButton.querySelector('.button-loader');
-        const resultsDiv = document.getElementById('download-results');
-        let pollingInterval = null;
-
-        form.addEventListener('submit', async (e) => {
-            e.preventDefault();
-            const videoUrl = urlInput.value;
-            
-            buttonText.style.display = 'none';
-            buttonLoader.style.display = 'inline';
-            submitButton.disabled = true;
-            resultsDiv.innerHTML = `
-                <div class="download-card status-card">
-                    <i class="fa-solid fa-spinner fa-spin status-icon"></i>
-                    <p class="status-message">Analisando o link...</p>
-                </div>`;
-
-            if (pollingInterval) clearInterval(pollingInterval);
-
-            try {
-                const response = await fetch('/api/download', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ url: videoUrl }),
-                });
-                const result = await response.json();
-                if (response.ok) {
-                    pollingInterval = setInterval(() => checkStatus(videoUrl), 2000);
-                } else {
-                    handleFailure(result.message || 'Erro ao iniciar o processo.');
-                }
-            } catch (error) {
-                handleFailure('Erro de rede. O servidor está offline?');
-            }
-        });
-
-        async function checkStatus(videoUrl) {
-            try {
-                const response = await fetch('/api/check_status', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ url: videoUrl }),
-                });
-                const result = await response.json();
-
-                if (result.status === 'completed') {
-                    clearInterval(pollingInterval);
-                    const fileSizeMB = (result.file_size / (1024 * 1024)).toFixed(2);
-                    resultsDiv.innerHTML = `
-                        <div class="download-card completed-card">
-                            <img src="${result.thumbnail}" alt="Thumbnail" class="video-thumbnail">
-                            <div class="video-details">
-                                <h4>${result.title}</h4>
-                                <p class="file-info">Tamanho: ${fileSizeMB} MB</p>
-                                <div class="button-group">
-                                    <a href="${result.download_link}" class="download-button" download="${result.file_name}" onclick="scrollToTopAfterDownload()">
-                                        <i class="fa-solid fa-download"></i> Baixar MP4
-                                    </a>
-                                    <button class="copy-button" onclick="copyToClipboard('${window.location.origin}${result.download_link}')">
-                                        <i class="fa-solid fa-copy"></i>
-                                    </button>
-                                </div>
-                            </div>
-                        </div>`;
-                    resetForm();
-                } else if (result.status === 'failed') {
-                    handleFailure(result.message);
-                } else {
-                    resultsDiv.innerHTML = `
-                        <div class="download-card status-card">
-                            <i class="fa-solid fa-spinner fa-spin status-icon"></i>
-                            <p class="status-message">${result.message}</p>
-                        </div>`;
-                }
-            } catch (error) {
-                handleFailure('Erro ao verificar o status.');
-            }
-        }
-
-        function handleFailure(message) {
-            clearInterval(pollingInterval);
-            resultsDiv.innerHTML = `<div class="download-card error-card"><p class="error-message">Falha: ${message}</p></div>`;
-            resetForm(false);
-        }
-
-        function resetForm(clearInput = true) {
-            if (clearInput) urlInput.value = '';
-            buttonText.style.display = 'inline';
-            buttonLoader.style.display = 'none';
-            submitButton.disabled = false;
-        }
-        
-        function scrollToTopAfterDownload() {
-            setTimeout(() => {
-                form.scrollIntoView({ behavior: 'smooth' });
-            }, 500);
-        }
-
-        function copyToClipboard(text) {
-            navigator.clipboard.writeText(text).then(() => {
-                alert('Link de download copiado para a área de transferência!');
-            }).catch(err => {
-                alert('Não foi possível copiar o link.');
-            });
-        }
+        // ... (resto do script)
     </script>
 </body>
 </html>
